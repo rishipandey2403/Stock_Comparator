@@ -47,6 +47,12 @@ st.markdown("""
         font-weight: 600;
         color: #2c3e50;
     }
+    .delta-positive {
+        color: #27ae60;
+    }
+    .delta-negative {
+        color: #e74c3c;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -109,14 +115,14 @@ with tab1:
                 
                 for i, (name, key, is_currency, prefix) in enumerate(metrics):
                     with cols[i]:
-                        val1 = result['data1'][key]
-                        val2 = result['data2'][key]
+                        val1 = result['data1'].get(key, 'N/A')
+                        val2 = result['data2'].get(key, 'N/A')
                         
                         if is_currency and val1 != 'N/A' and isinstance(val1, (int, float)):
-                            val1 = f"{prefix}{val1:,.2f}"
-                            val2 = f"{prefix}{val2:,.2f}"
+                            val1 = f"{prefix}{val1:,.2f}" if prefix else val1
+                            val2 = f"{prefix}{val2:,.2f}" if prefix else val2
                         
-                        delta = self._calculate_delta(result['data1'][key], result['data2'][key]) if key != 'market_cap' else None
+                        delta = agent.calculate_delta(result['data1'].get(key), result['data2'].get(key)) if key != 'market_cap' else None
                         
                         st.metric(
                             label=name,
@@ -134,25 +140,28 @@ with tab1:
                     hist1 = agent.get_historical_data(ticker1, f"{chart_days}d")
                     hist2 = agent.get_historical_data(ticker2, f"{chart_days}d")
                     
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=hist1['Date'], y=hist1['Close'],
-                        name=ticker1, line=dict(color='#3498db')))
-                    fig.add_trace(go.Scatter(
-                        x=hist2['Date'], y=hist2['Close'],
-                        name=ticker2, line=dict(color='#e74c3c')))
-                    
-                    fig.update_layout(
-                        hovermode="x unified",
-                        showlegend=True,
-                        xaxis_title="Date",
-                        yaxis_title="Price",
-                        template="plotly_white",
-                        height=400
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    if hist1 is not None and hist2 is not None:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=hist1['Date'], y=hist1['Close'],
+                            name=ticker1, line=dict(color='#3498db')))
+                        fig.add_trace(go.Scatter(
+                            x=hist2['Date'], y=hist2['Close'],
+                            name=ticker2, line=dict(color='#e74c3c')))
+                        
+                        fig.update_layout(
+                            hovermode="x unified",
+                            showlegend=True,
+                            xaxis_title="Date",
+                            yaxis_title="Price",
+                            template="plotly_white",
+                            height=400
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning("Could not load historical price data for one or both stocks")
                 except Exception as e:
-                    st.warning(f"Could not load historical data: {str(e)}")
+                    st.warning(f"Could not generate price chart: {str(e)}")
                 
                 # Valuation Metrics
                 st.markdown("---")
@@ -168,8 +177,8 @@ with tab1:
                 cols = st.columns(len(valuation_metrics))
                 for i, (name, key) in enumerate(valuation_metrics):
                     with cols[i]:
-                        val1 = result['data1'][key]
-                        val2 = result['data2'][key]
+                        val1 = result['data1'].get(key, 'N/A')
+                        val2 = result['data2'].get(key, 'N/A')
                         
                         if key == 'enterprise_value' and val1 != 'N/A':
                             val1 = f"₹{val1/1e12:.2f}T" if result['is_indian'] else f"${val1/1e12:.2f}T"
@@ -178,17 +187,66 @@ with tab1:
                         st.metric(
                             label=name,
                             value=val1 if val1 else 'N/A',
-                            delta=self._calculate_delta(result['data1'][key], result['data2'][key]) if key not in ['enterprise_value', 'ebitda'] else None
+                            delta=agent.calculate_delta(result['data1'].get(key), result['data2'].get(key)) if key not in ['enterprise_value', 'ebitda'] else None
                         )
                         st.caption(f"{ticker2}: {val2 if val2 else 'N/A'}")
 
 with tab2:
-    # [Previous comparative analysis content]
-    pass
+    if st.button("🔄 Generate Comparison", key="compare_btn", type="primary"):
+        result = agent.generate_comparison(ticker1, ticker2)
+        if result:
+            st.subheader("📊 Side-by-Side Comparison")
+            
+            # Create styled dataframe
+            df = result['table']
+            st.dataframe(
+                df.style.apply(
+                    lambda x: ['background: #f7f7f7' if i%2==0 else '' for i in range(len(x))],
+                    axis=0
+                ),
+                use_container_width=True,
+                height=(len(df)*35 + 38)
+            )
 
 with tab3:
-    # [Previous news content]
-    pass
+    if st.button("🔄 Get Latest News", key="news_btn", type="primary"):
+        result = agent.generate_comparison(ticker1, ticker2)
+        if result:
+            st.subheader("📰 Latest News & Research")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(f"### {ticker1} News")
+                if result['data1']['news']:
+                    for item in result['data1']['news']:
+                        st.markdown(f"""
+                        <div class="metric-card {'positive' if item['is_moneycontrol'] else 'neutral'}">
+                            <a href="{item['link']}" target="_blank" style="color: inherit; text-decoration: none;">
+                                <b>{item['title']}</b><br>
+                                <small>{item['publisher']}</small>
+                            </a>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.warning("No recent news found")
+            
+            with col2:
+                st.markdown(f"### {ticker2} News")
+                if result['data2']['news']:
+                    for item in result['data2']['news']:
+                        st.markdown(f"""
+                        <div class="metric-card {'positive' if item['is_moneycontrol'] else 'neutral'}">
+                            <a href="{item['link']}" target="_blank" style="color: inherit; text-decoration: none;">
+                                <b>{item['title']}</b><br>
+                                <small>{item['publisher']}</small>
+                            </a>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.warning("No recent news found")
+
+            if result['is_indian']:
+                st.info("ℹ️ You're viewing Moneycontrol Pro links. Login to your Pro account for full research reports.")
 
 # Footer
 st.markdown("---")
@@ -196,13 +254,3 @@ st.caption("""
 **Data Sources:** Yahoo Finance | Moneycontrol Pro  
 **Disclaimer:** This tool is for informational purposes only. Please consult a financial advisor before making investment decisions.
 """)
-
-def _calculate_delta(self, val1, val2):
-    """Helper method to calculate delta between two values"""
-    try:
-        if val1 is None or val2 is None or val1 == 'N/A' or val2 == 'N/A':
-            return None
-        diff = float(val1) - float(val2)
-        return f"{abs(diff):.2f} {'higher' if diff > 0 else 'lower'}"
-    except:
-        return None
