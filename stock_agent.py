@@ -6,8 +6,8 @@ Enhanced Stock Analysis Agent with Moneycontrol Pro Integration
 import yfinance as yf
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
-from urllib.parse import quote
+from datetime import datetime
+from urllib.parse import urlparse, quote
 import streamlit as st
 
 class StockAnalysisAgent:
@@ -102,8 +102,8 @@ class StockAnalysisAgent:
         except:
             return "N/A"
 
-    def _calculate_delta(self, val1, val2):
-        """Calculate delta between two values"""
+    def calculate_delta(self, val1, val2):
+        """Calculate delta between two values (public method)"""
         try:
             if val1 is None or val2 is None or val1 == 'N/A' or val2 == 'N/A':
                 return None
@@ -211,7 +211,7 @@ class StockAnalysisAgent:
         metrics = [
             ('Current Price', 'current_price', True, True),
             ('Previous Close', 'prev_close', True, True),
-            ('Day Change', 'day_change_pct', False, False),
+            ('Day Change (%)', 'day_change_pct', False, False),
             ('Market Cap', 'market_cap', True, True),
             ('P/E Ratio', 'pe_ratio', False, False),
             ('PEG Ratio', 'peg_ratio', False, False),
@@ -248,7 +248,7 @@ class StockAnalysisAgent:
                 'Metric': name,
                 ticker1: val1,
                 ticker2: val2,
-                'Delta': self._calculate_delta(data1.get(key), data2.get(key)) if key not in ['recommendation'] else None
+                'Delta': self.calculate_delta(data1.get(key), data2.get(key)) if key not in ['recommendation'] else None
             })
 
         return {
